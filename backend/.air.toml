@@ -1,0 +1,17 @@
+# Configurações globais
+root = "."
+tmp_dir = "tmp" # Pasta temporária para o binário compilado
+
+[build]
+# Comando para compilar o projeto. O binário será salvo em ./tmp/main
+cmd = "go build -o ./tmp/main ./cmd/api/main.go"
+# O binário que o air deve executar
+bin = "./tmp/main"
+# Arquivos e pastas para monitorar. Qualquer alteração aqui dispara a recompilação.
+include_ext = ["go", "tpl", "tmpl", "html"]
+include_dir = ["cmd", "internal"]
+exclude_dir = ["vendor", "tmp"]
+
+[log]
+# Apenas para mostrar os logs coloridos
+color = true
