@@ -1,74 +1,75 @@
 .tableContainer {
-    width: 100%;
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius); /* Padronizado */
-    background-color: var(--color-surface);
-    overflow: hidden;
-    box-shadow: var(--shadow-md); /* Adiciona profundidade */
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius); /* Padronizado */
+  background-color: var(--color-surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-md); /* Adiciona profundidade */
 }
 
 .table {
-    width: 100%;
-    border-collapse: collapse;
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.table th, .table td {
-    padding: var(--spacing-md); /* Padronizado */
-    text-align: left;
-    border-bottom: 1px solid var(--color-border);
-    vertical-align: middle; /* Melhora o alinhamento vertical */
+.table th,
+.table td {
+  padding: var(--spacing-md); /* Padronizado */
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle; /* Melhora o alinhamento vertical */
 }
 
 .table th {
-    background-color: var(--color-background); /* Fundo claro para o cabeçalho */
-    font-size: var(--font-size-sm); /* Padronizado */
-    font-weight: 600;
-    text-transform: uppercase;
-    color: var(--color-text-secondary);
+  background-color: var(--color-background); /* Fundo claro para o cabeçalho */
+  font-size: var(--font-size-sm); /* Padronizado */
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
 }
 
 .table tbody tr:last-child td {
-    border-bottom: none;
+  border-bottom: none;
 }
 
 .table tbody tr {
-    transition: var(--transition-main); /* Adiciona transição suave */
+  transition: var(--transition-main); /* Adiciona transição suave */
 }
 
 .table tbody tr:hover {
-    background-color: #f1f3f5; /* Efeito de hover sutil para tema claro */
+  background-color: #f1f3f5; /* Efeito de hover sutil para tema claro */
 }
 
 .actionsCell {
-    text-align: right;
-    white-space: nowrap; /* Impede que os botões quebrem a linha */
+  text-align: right;
+  white-space: nowrap; /* Impede que os botões quebrem a linha */
 }
 
 .iconButton {
-    background: transparent;
-    border: none;
-    border-radius: var(--border-radius);
-    cursor: pointer;
-    color: var(--color-text-secondary);
-    padding: var(--spacing-xs); /* Padronizado */
-    margin-left: var(--spacing-sm); /* Padronizado */
-    transition: var(--transition-main); /* Padronizado */
-    display: inline-flex;
-    align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs); /* Padronizado */
+  margin-left: var(--spacing-sm); /* Padronizado */
+  transition: var(--transition-main); /* Padronizado */
+  display: inline-flex;
+  align-items: center;
 }
 
 .iconButton:hover {
-    color: var(--color-primary);
-    background-color: #e9ecef; /* Fundo sutil no hover do ícone */
+  color: var(--color-primary);
+  background-color: #e9ecef; /* Fundo sutil no hover do ícone */
 }
 
 .iconButton svg {
-    width: 20px;
-    height: 20px;
+  width: 20px;
+  height: 20px;
 }
 
 .emptyState {
-    padding: var(--spacing-xl); /* Padronizado */
-    text-align: center;
-    color: var(--color-text-secondary);
+  padding: var(--spacing-xl); /* Padronizado */
+  text-align: center;
+  color: var(--color-text-secondary);
 }

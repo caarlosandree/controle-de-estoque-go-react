@@ -2,9 +2,15 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"controle-de-estoque/backend/internal/handler"
 	"controle-de-estoque/backend/internal/repository"
@@ -12,70 +18,211 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors" // <<-- Importando o pacote CORS
+	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
+// Config representa a configuração da aplicação.
+type Config struct {
+	ServerAddress string
+	DBURL         string
+	CORSOrigins   []string
+	JWTSecret     string
+	Env           string
+}
+
+// Services agrupa todos os serviços da aplicação para fácil injeção.
+type Services struct {
+	TokenService   *service.TokenService
+	UserService    *service.UserService
+	ProductService *service.ProductService
+}
+
+// Handlers agrupa todos os handlers da aplicação.
+type Handlers struct {
+	ProductHandler *handler.ProductHandler
+	UserHandler    *handler.UserHandler
+}
+
 func main() {
-	err := godotenv.Load()
+	// Inicializa o logger estruturado.
+	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Printf("Aviso: Não foi possível carregar o arquivo .env.")
+		log.Fatalf("Falha ao inicializar o logger: %v", err)
+	}
+	defer func() {
+		// Garante que o buffer do logger seja descarregado ao sair.
+		_ = logger.Sync()
+	}()
+	zap.ReplaceGlobals(logger)
+
+	// Carrega a configuração.
+	cfg, err := loadConfig()
+	if err != nil {
+		logger.Fatal("Falha ao carregar a configuração", zap.Error(err))
 	}
 
-	ctx := context.Background()
+	// Cria um contexto para a inicialização.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	dbpool, err := repository.NewDBConnection(ctx)
+	// Conecta ao banco de dados.
+	dbpool, err := repository.NewDBConnection(ctx, cfg.DBURL)
 	if err != nil {
-		log.Fatalf("Não foi possível conectar ao banco de dados: %v", err)
+		logger.Fatal("Falha ao conectar ao banco de dados",
+			zap.Error(err),
+			zap.String("dbURL", maskDBURL(cfg.DBURL)),
+		)
 	}
 	defer dbpool.Close()
+	logger.Info("Conexão com o banco de dados estabelecida")
 
-	log.Println("Conexão com o banco de dados estabelecida com sucesso.")
+	// Inicializa as dependências.
+	services := initServices(dbpool, cfg)
+	handlers := initHandlers(services)
 
+	// Configura o servidor HTTP.
+	server := &http.Server{
+		Addr:         cfg.ServerAddress,
+		Handler:      setupRouter(handlers, services.TokenService, cfg),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Inicia e gerencia o ciclo de vida do servidor.
+	runServer(server, logger)
+}
+
+func loadConfig() (*Config, error) {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Aviso: Não foi possível carregar o arquivo .env: %v", err)
+	}
+
+	dbURL := getEnv("DATABASE_URL", "")
+	if dbURL == "" {
+		return nil, errors.New("DATABASE_URL é obrigatório")
+	}
+	jwtSecret := getEnv("JWT_SECRET", "")
+	if jwtSecret == "" {
+		return nil, errors.New("JWT_SECRET é obrigatório")
+	}
+	return &Config{
+		ServerAddress: getEnv("SERVER_ADDRESS", ":8080"),
+		DBURL:         dbURL,
+		CORSOrigins:   strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:5173"), ","),
+		JWTSecret:     jwtSecret,
+		Env:           getEnv("ENV", "development"),
+	}, nil
+}
+
+func initServices(dbpool *pgxpool.Pool, cfg *Config) *Services {
 	productRepo := repository.NewProductRepository(dbpool)
+	userRepo := repository.NewUserRepository(dbpool)
+
+	passwordService := service.NewPasswordService()
+	tokenService := service.NewTokenService(cfg.JWTSecret)
 	productService := service.NewProductService(productRepo)
-	productHandler := handler.NewProductHandler(productService)
+	userService := service.NewUserService(userRepo, passwordService, tokenService)
 
-	r := chi.NewRouter()
-
-	// --- Configuração dos Middlewares ---
-
-	// Middleware de CORS
-	r.Use(cors.Handler(cors.Options{
-		// Lista de origens permitidas. Nosso frontend está em http://localhost:5173
-		AllowedOrigins: []string{"http://localhost:5173"},
-		// Métodos HTTP que o frontend pode usar
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		// Cabeçalhos HTTP que podem ser enviados
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300, // Tempo máximo que o resultado de uma pre-flight request pode ser cacheado
-	}))
-
-	// Middleware para logging de requisições
-	r.Use(middleware.Logger)
-
-	// --- Configuração das Rotas ---
-	r.Get("/healthcheck", healthCheckHandler)
-
-	r.Route("/products", func(r chi.Router) {
-		r.Post("/", productHandler.CreateProduct)
-		r.Get("/", productHandler.ListProducts)
-		r.Get("/{productID}", productHandler.GetProductByID)
-		r.Put("/{productID}", productHandler.UpdateProduct)
-		r.Delete("/{productID}", productHandler.DeleteProduct)
-	})
-
-	port := ":8080"
-	log.Printf("Servidor da API iniciando na porta %s", port)
-	err = http.ListenAndServe(port, r)
-	if err != nil {
-		log.Fatalf("Não foi possível iniciar o servidor: %s\n", err)
+	return &Services{
+		TokenService:   tokenService,
+		UserService:    userService,
+		ProductService: productService,
 	}
 }
 
+func initHandlers(s *Services) *Handlers {
+	return &Handlers{
+		ProductHandler: handler.NewProductHandler(s.ProductService),
+		UserHandler:    handler.NewUserHandler(s.UserService, zap.L()),
+	}
+}
+
+func setupRouter(h *Handlers, tokenService *service.TokenService, cfg *Config) *chi.Mux {
+	r := chi.NewRouter()
+
+	// Middlewares
+	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Logger)
+	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   cfg.CORSOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Rotas Públicas
+	r.Get("/healthcheck", healthCheckHandler)
+	r.Post("/register", h.UserHandler.Register)
+	r.Post("/login", h.UserHandler.Login)
+
+	// Rotas Protegidas
+	r.Group(func(r chi.Router) {
+		r.Use(handler.AuthMiddleware(tokenService))
+		r.Get("/me", h.UserHandler.GetMe)
+		r.Route("/products", func(r chi.Router) {
+			r.Post("/", h.ProductHandler.CreateProduct)
+			r.Get("/", h.ProductHandler.ListProducts)
+			r.Get("/{productID}", h.ProductHandler.GetProductByID)
+			r.Put("/{productID}", h.ProductHandler.UpdateProduct)
+			r.Delete("/{productID}", h.ProductHandler.DeleteProduct)
+		})
+	})
+	return r
+}
+
+func runServer(server *http.Server, logger *zap.Logger) {
+	serverCtx, serverStopCtx := context.WithCancel(context.Background())
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		<-sig
+		shutdownCtx, cancel := context.WithTimeout(serverCtx, 30*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Fatal("HTTP server shutdown error", zap.Error(err))
+		}
+		serverStopCtx()
+	}()
+
+	logger.Info("Starting HTTP server", zap.String("address", server.Addr))
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Fatal("HTTP server failed", zap.Error(err))
+	}
+
+	<-serverCtx.Done()
+	logger.Info("Server stopped gracefully")
+}
+
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	response := struct {
+		Status string `json:"status"`
+	}{Status: "ok"}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "API está funcionando normalmente e conectada ao banco de dados.")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		zap.L().Error("failed to write health check response", zap.Error(err))
+	}
+}
+
+// Helpers
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultValue
+}
+
+func maskDBURL(dbURL string) string {
+	if strings.Contains(dbURL, "@") {
+		parts := strings.Split(dbURL, "@")
+		return "postgres://*****:*****@" + parts[1]
+	}
+	return dbURL
 }

@@ -1,0 +1,48 @@
+run:
+  timeout: 5m
+  modules-download-mode: vendor
+
+linters-settings:
+  goimports:
+    local-prefixes: controle-de-estoque/backend
+  gofmt:
+    simplify: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - errorlint
+    - durationcheck
+    - gofmt
+    - goimports
+    - typecheck # Habilitado, conforme sua configuração
+
+issues:
+  exclude-dirs:
+    - tmp
+    - vendor
+    - migrations
+    - scripts
+
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+
+    - linters:
+        - errcheck
+      text: "Close result of"
+
+    - linters:
+        - staticcheck
+      text: "should use time.Since"
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true

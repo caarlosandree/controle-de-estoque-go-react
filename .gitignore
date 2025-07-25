@@ -18,6 +18,9 @@ backend/*.exe
 backend/*.test
 backend/tmp/ # Pasta de build do 'air'
 
+# Dependências baixadas localmente
+backend/vendor/
+
 # --- Frontend (Node.js / Vite / React) ---
 
 # Dependências
