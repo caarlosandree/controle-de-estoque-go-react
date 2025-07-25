@@ -1,0 +1,17 @@
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.filterContainer {
+    margin-bottom: 1.5rem;
+}
+
+.deleteButton {
+    background-color: var(--color-danger);
+}
+.deleteButton:hover {
+    background-color: #c9302c;
+}

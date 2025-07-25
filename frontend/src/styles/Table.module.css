@@ -12,6 +12,17 @@
   border-collapse: collapse;
 }
 
+.tableLink {
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: var(--transition-main);
+}
+
+.tableLink:hover {
+  color: var(--color-primary);
+}
+
 .table th,
 .table td {
   padding: var(--spacing-md); /* Padronizado */

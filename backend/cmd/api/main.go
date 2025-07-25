@@ -35,7 +35,7 @@ type Config struct {
 
 // Services agrupa todos os serviços da aplicação para fácil injeção.
 type Services struct {
-	TokenService   service.TokenGenerator // Agora interface
+	TokenService   service.TokenGenerator
 	UserService    *service.UserService
 	ProductService *service.ProductService
 	ClientService  *service.ClientService
@@ -49,17 +49,13 @@ type Handlers struct {
 }
 
 func main() {
-	// Inicializa o logger estruturado.
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Falha ao inicializar o logger: %v", err)
 	}
-	defer func() {
-		_ = logger.Sync()
-	}()
+	defer func() { _ = logger.Sync() }()
 	zap.ReplaceGlobals(logger)
 
-	// Carrega a configuração.
 	cfg, err := loadConfig()
 	if err != nil {
 		logger.Fatal("Falha ao carregar a configuração", zap.Error(err))
@@ -68,7 +64,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Conecta ao banco de dados.
 	dbpool, err := repository.NewDBConnection(ctx, cfg.DBURL)
 	if err != nil {
 		logger.Fatal("Falha ao conectar ao banco de dados",
@@ -79,14 +74,12 @@ func main() {
 	defer dbpool.Close()
 	logger.Info("Conexão com o banco de dados estabelecida")
 
-	// Inicializa serviços e handlers
 	services := initServices(dbpool, cfg)
 	handlers := initHandlers(services)
 
-	// Configura servidor HTTP
 	server := &http.Server{
 		Addr:         cfg.ServerAddress,
-		Handler:      setupRouter(handlers, services.TokenService, cfg), // Passa interface
+		Handler:      setupRouter(handlers, services.TokenService, cfg),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -121,17 +114,17 @@ func initServices(dbpool *pgxpool.Pool, cfg *Config) *Services {
 	productRepo := repository.NewProductRepository(dbpool)
 	userRepo := repository.NewUserRepository(dbpool)
 	clientRepo := repository.NewClientRepository(dbpool)
-	clientStockRepo := repository.NewClientStockRepository() // SEM dbpool
+	clientStockRepo := repository.NewClientStockRepository(dbpool) // ✅ corrigido para passar dbpool
 
 	passwordService := service.NewPasswordService()
-	tokenService := service.NewTokenService(cfg.JWTSecret) // tipo concreto
+	tokenService := service.NewTokenService(cfg.JWTSecret)
 
 	productService := service.NewProductService(dbpool, productRepo, clientStockRepo)
 	userService := service.NewUserService(userRepo, passwordService, tokenService)
-	clientService := service.NewClientService(clientRepo)
+	clientService := service.NewClientService(clientRepo, clientStockRepo) // ✅ recebe estoque
 
 	return &Services{
-		TokenService:   tokenService, // tipo concreto
+		TokenService:   tokenService,
 		UserService:    userService,
 		ProductService: productService,
 		ClientService:  clientService,
@@ -165,9 +158,9 @@ func setupRouter(h *Handlers, tokenService service.TokenGenerator, cfg *Config) 
 	r.Post("/register", h.UserHandler.Register)
 	r.Post("/login", h.UserHandler.Login)
 
-	// Rotas protegidas, usando middleware que aceita a interface TokenGenerator
+	// Rotas protegidas
 	r.Group(func(r chi.Router) {
-		r.Use(handler.AuthMiddleware(tokenService)) // agora tokenService é interface
+		r.Use(handler.AuthMiddleware(tokenService))
 
 		r.Get("/me", h.UserHandler.GetMe)
 
@@ -177,7 +170,7 @@ func setupRouter(h *Handlers, tokenService service.TokenGenerator, cfg *Config) 
 			r.Get("/{productID}", h.ProductHandler.GetProductByID)
 			r.Put("/{productID}", h.ProductHandler.UpdateProduct)
 			r.Delete("/{productID}", h.ProductHandler.DeleteProduct)
-			r.Post("/{productID}/transfer", h.ProductHandler.TransferStock) // rota nova para transfer
+			r.Post("/{productID}/transfer", h.ProductHandler.TransferStock)
 		})
 
 		r.Route("/clients", func(r chi.Router) {
@@ -186,6 +179,9 @@ func setupRouter(h *Handlers, tokenService service.TokenGenerator, cfg *Config) 
 			r.Get("/{clientID}", h.ClientHandler.GetClientByID)
 			r.Put("/{clientID}", h.ClientHandler.UpdateClient)
 			r.Delete("/{clientID}", h.ClientHandler.DeleteClient)
+
+			// ✅ Nova rota de estoque do cliente
+			r.Get("/{clientID}/stock", h.ClientHandler.ListStockByClientID)
 		})
 	})
 

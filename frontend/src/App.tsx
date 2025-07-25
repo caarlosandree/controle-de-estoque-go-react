@@ -4,6 +4,8 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ProductListPage } from './pages/ProductListPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ClientListPage } from './pages/ClientListPage';
+import { ClientDetailPage } from './pages/ClientDetailPage'; // Importando a nova página
 
 function App() {
     return (
@@ -16,7 +18,8 @@ function App() {
             <Route element={<ProtectedRoute />}>
                 <Route path="/" element={<Layout />}>
                     <Route index element={<ProductListPage />} />
-                    {/* Outras rotas protegidas virão aqui */}
+                    <Route path="/clients" element={<ClientListPage />} />
+                    <Route path="/clients/:clientID" element={<ClientDetailPage />} /> {/* Nova rota de detalhes */}
                 </Route>
             </Route>
         </Routes>

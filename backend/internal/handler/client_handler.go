@@ -108,3 +108,25 @@ func (h *ClientHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ListStockByClientID retorna o estoque do cliente especificado.
+func (h *ClientHandler) ListStockByClientID(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "clientID")
+	clientID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "ID do cliente inválido", http.StatusBadRequest)
+		return
+	}
+
+	stocks, err := h.service.ListStockByClientID(r.Context(), clientID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(stocks); err != nil {
+		log.Printf("Erro ao codificar JSON do estoque do cliente: %v", err)
+	}
+}

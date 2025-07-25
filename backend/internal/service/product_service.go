@@ -27,11 +27,6 @@ type IProductRepository interface {
 	UpdateQuantity(ctx context.Context, tx pgx.Tx, productID uuid.UUID, newQuantity int) error
 }
 
-// IClientStockRepository define o contrato para repositório que gerencia estoque por cliente.
-type IClientStockRepository interface {
-	Upsert(ctx context.Context, tx pgx.Tx, stock *domain.ClientStock) error
-}
-
 // ProductService contém a lógica de negócio para produtos, incluindo transferências de estoque.
 type ProductService struct {
 	db        *pgxpool.Pool // Pool para iniciar transações
