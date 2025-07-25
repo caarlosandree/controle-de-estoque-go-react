@@ -7,7 +7,6 @@ describe('Pagination Component', () => {
     it('should render correctly', () => {
         render(<Pagination currentPage={1} totalPages={10} onPageChange={() => {}} />);
 
-        // Verifica se os botões e o texto estão na tela
         expect(screen.getByRole('button', { name: /anterior/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /próxima/i })).toBeInTheDocument();
         expect(screen.getByText('Página 1 de 10')).toBeInTheDocument();
@@ -28,20 +27,19 @@ describe('Pagination Component', () => {
     });
 
     it('should call onPageChange with the correct page number when clicking next', async () => {
-        const onPageChangeMock = vi.fn(); // Cria uma função "mock" para espionar a chamada
+        const onPageChangeMock = vi.fn();
         render(<Pagination currentPage={5} totalPages={10} onPageChange={onPageChangeMock} />);
 
         const nextButton = screen.getByRole('button', { name: /próxima/i });
         await userEvent.click(nextButton);
 
-        expect(onPageChangeMock).toHaveBeenCalledOnce();
+        expect(onPageChangeMock).toHaveBeenCalledTimes(1);  // Corrigido aqui
         expect(onPageChangeMock).toHaveBeenCalledWith(6);
     });
 
     it('should not render if there is only one page', () => {
         const { container } = render(<Pagination currentPage={1} totalPages={1} onPageChange={() => {}} />);
 
-        // Verifica se o componente não renderizou nada
         expect(container).toBeEmptyDOMElement();
     });
 });

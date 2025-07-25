@@ -2,9 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import NewProductForm from './NewProductForm';
-import { Toaster } from 'react-hot-toast'; // Importando o Toaster
+import { Toaster } from 'react-hot-toast';
 
-// Mock da API
 vi.mock('@/services/api', () => ({
     default: {
         post: vi.fn(),
@@ -13,7 +12,6 @@ vi.mock('@/services/api', () => ({
 import api from '@/services/api';
 
 describe('NewProductForm Component', () => {
-
     afterEach(() => {
         vi.clearAllMocks();
     });
@@ -30,7 +28,6 @@ describe('NewProductForm Component', () => {
     });
 
     it('should display validation error if required fields are empty on submit', async () => {
-        // Correção: Renderizamos o Toaster junto com o formulário
         render(
             <>
                 <Toaster />
@@ -51,7 +48,7 @@ describe('NewProductForm Component', () => {
         const cancelButton = screen.getByRole('button', { name: /cancelar/i });
         await userEvent.click(cancelButton);
 
-        expect(onCancelMock).toHaveBeenCalledOnce();
+        expect(onCancelMock).toHaveBeenCalledTimes(1);  // Corrigido aqui
     });
 
     it('should call onSuccess with correct data on successful submission', async () => {
@@ -60,7 +57,6 @@ describe('NewProductForm Component', () => {
         const mockNewProduct = { id: 'uuid-123', name: 'Teclado Mecânico', description: '', price_in_cents: 19990, quantity: 50 };
         (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: mockNewProduct });
 
-        // Correção: Renderizamos o Toaster também neste teste
         render(
             <>
                 <Toaster />
