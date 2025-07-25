@@ -133,3 +133,30 @@ func (h *ProductHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// TransferStock realiza a transferência de estoque global para o estoque de um cliente.
+func (h *ProductHandler) TransferStock(w http.ResponseWriter, r *http.Request) {
+	productIDStr := chi.URLParam(r, "productID")
+	productID, err := uuid.Parse(productIDStr)
+	if err != nil {
+		http.Error(w, "ID do produto inválido", http.StatusBadRequest)
+		return
+	}
+
+	var req service.TransferStockRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Corpo da requisição inválido", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.TransferStock(r.Context(), productID, req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "Transferência de estoque realizada com sucesso."}); err != nil {
+		log.Printf("Erro ao codificar JSON na resposta de transferência: %v", err)
+	}
+}

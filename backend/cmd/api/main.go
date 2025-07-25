@@ -35,15 +35,17 @@ type Config struct {
 
 // Services agrupa todos os serviços da aplicação para fácil injeção.
 type Services struct {
-	TokenService   *service.TokenService
+	TokenService   service.TokenGenerator // Agora interface
 	UserService    *service.UserService
 	ProductService *service.ProductService
+	ClientService  *service.ClientService
 }
 
 // Handlers agrupa todos os handlers da aplicação.
 type Handlers struct {
 	ProductHandler *handler.ProductHandler
 	UserHandler    *handler.UserHandler
+	ClientHandler  *handler.ClientHandler
 }
 
 func main() {
@@ -53,7 +55,6 @@ func main() {
 		log.Fatalf("Falha ao inicializar o logger: %v", err)
 	}
 	defer func() {
-		// Garante que o buffer do logger seja descarregado ao sair.
 		_ = logger.Sync()
 	}()
 	zap.ReplaceGlobals(logger)
@@ -64,7 +65,6 @@ func main() {
 		logger.Fatal("Falha ao carregar a configuração", zap.Error(err))
 	}
 
-	// Cria um contexto para a inicialização.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -79,20 +79,19 @@ func main() {
 	defer dbpool.Close()
 	logger.Info("Conexão com o banco de dados estabelecida")
 
-	// Inicializa as dependências.
+	// Inicializa serviços e handlers
 	services := initServices(dbpool, cfg)
 	handlers := initHandlers(services)
 
-	// Configura o servidor HTTP.
+	// Configura servidor HTTP
 	server := &http.Server{
 		Addr:         cfg.ServerAddress,
-		Handler:      setupRouter(handlers, services.TokenService, cfg),
+		Handler:      setupRouter(handlers, services.TokenService, cfg), // Passa interface
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Inicia e gerencia o ciclo de vida do servidor.
 	runServer(server, logger)
 }
 
@@ -121,16 +120,21 @@ func loadConfig() (*Config, error) {
 func initServices(dbpool *pgxpool.Pool, cfg *Config) *Services {
 	productRepo := repository.NewProductRepository(dbpool)
 	userRepo := repository.NewUserRepository(dbpool)
+	clientRepo := repository.NewClientRepository(dbpool)
+	clientStockRepo := repository.NewClientStockRepository() // SEM dbpool
 
 	passwordService := service.NewPasswordService()
-	tokenService := service.NewTokenService(cfg.JWTSecret)
-	productService := service.NewProductService(productRepo)
+	tokenService := service.NewTokenService(cfg.JWTSecret) // tipo concreto
+
+	productService := service.NewProductService(dbpool, productRepo, clientStockRepo)
 	userService := service.NewUserService(userRepo, passwordService, tokenService)
+	clientService := service.NewClientService(clientRepo)
 
 	return &Services{
-		TokenService:   tokenService,
+		TokenService:   tokenService, // tipo concreto
 		UserService:    userService,
 		ProductService: productService,
+		ClientService:  clientService,
 	}
 }
 
@@ -138,13 +142,14 @@ func initHandlers(s *Services) *Handlers {
 	return &Handlers{
 		ProductHandler: handler.NewProductHandler(s.ProductService),
 		UserHandler:    handler.NewUserHandler(s.UserService, zap.L()),
+		ClientHandler:  handler.NewClientHandler(s.ClientService),
 	}
 }
 
-func setupRouter(h *Handlers, tokenService *service.TokenService, cfg *Config) *chi.Mux {
+func setupRouter(h *Handlers, tokenService service.TokenGenerator, cfg *Config) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Middlewares
+	// Middlewares globais
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Logger)
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(cors.Handler(cors.Options{
@@ -155,23 +160,35 @@ func setupRouter(h *Handlers, tokenService *service.TokenService, cfg *Config) *
 		MaxAge:           300,
 	}))
 
-	// Rotas Públicas
+	// Rotas públicas
 	r.Get("/healthcheck", healthCheckHandler)
 	r.Post("/register", h.UserHandler.Register)
 	r.Post("/login", h.UserHandler.Login)
 
-	// Rotas Protegidas
+	// Rotas protegidas, usando middleware que aceita a interface TokenGenerator
 	r.Group(func(r chi.Router) {
-		r.Use(handler.AuthMiddleware(tokenService))
+		r.Use(handler.AuthMiddleware(tokenService)) // agora tokenService é interface
+
 		r.Get("/me", h.UserHandler.GetMe)
+
 		r.Route("/products", func(r chi.Router) {
 			r.Post("/", h.ProductHandler.CreateProduct)
 			r.Get("/", h.ProductHandler.ListProducts)
 			r.Get("/{productID}", h.ProductHandler.GetProductByID)
 			r.Put("/{productID}", h.ProductHandler.UpdateProduct)
 			r.Delete("/{productID}", h.ProductHandler.DeleteProduct)
+			r.Post("/{productID}/transfer", h.ProductHandler.TransferStock) // rota nova para transfer
+		})
+
+		r.Route("/clients", func(r chi.Router) {
+			r.Post("/", h.ClientHandler.CreateClient)
+			r.Get("/", h.ClientHandler.ListClients)
+			r.Get("/{clientID}", h.ClientHandler.GetClientByID)
+			r.Put("/{clientID}", h.ClientHandler.UpdateClient)
+			r.Delete("/{clientID}", h.ClientHandler.DeleteClient)
 		})
 	})
+
 	return r
 }
 

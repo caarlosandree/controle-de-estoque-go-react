@@ -9,26 +9,64 @@ import (
 	"controle-de-estoque/backend/internal/domain"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5" // Import para ErrNoRows
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ErrProductNotFound é um erro customizado que retornamos quando um produto não é encontrado.
+// ErrProductNotFound é retornado quando um produto não é encontrado no banco.
 var ErrProductNotFound = errors.New("produto não encontrado")
 
-// ProductRepository gerencia as operações de banco de dados para produtos.
+// ProductRepository gerencia operações no banco relacionadas a produtos.
 type ProductRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewProductRepository cria uma nova instância de ProductRepository.
+// NewProductRepository cria um novo repositório de produtos.
 func NewProductRepository(db *pgxpool.Pool) *ProductRepository {
 	return &ProductRepository{db: db}
 }
 
-// CreateProduct insere um novo produto no banco de dados.
+// GetProductForUpdate busca um produto por ID e bloqueia a linha para update dentro da transação.
+func (r *ProductRepository) GetProductForUpdate(ctx context.Context, tx pgx.Tx, productID uuid.UUID) (*domain.Produto, error) {
+	const query = `
+		SELECT id, name, description, price_in_cents, quantity
+		FROM products
+		WHERE id = $1
+		FOR UPDATE
+	`
+	var p domain.Produto
+	err := tx.QueryRow(ctx, query, productID).Scan(&p.ID, &p.Name, &p.Description, &p.PriceInCents, &p.Quantity)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrProductNotFound
+		}
+		return nil, fmt.Errorf("erro ao buscar produto para atualização: %w", err)
+	}
+	return &p, nil
+}
+
+// UpdateQuantity atualiza a quantidade de um produto dentro de uma transação.
+func (r *ProductRepository) UpdateQuantity(ctx context.Context, tx pgx.Tx, productID uuid.UUID, newQuantity int) error {
+	const query = `
+		UPDATE products
+		SET quantity = $1, updated_at = NOW()
+		WHERE id = $2
+		RETURNING id
+	`
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, query, newQuantity, productID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrProductNotFound
+		}
+		return fmt.Errorf("erro ao atualizar quantidade do produto: %w", err)
+	}
+	return nil
+}
+
+// CreateProduct insere um novo produto no banco.
 func (r *ProductRepository) CreateProduct(ctx context.Context, product *domain.Produto) error {
-	query := `
+	const query = `
         INSERT INTO products (name, description, price_in_cents, quantity)
         VALUES ($1, $2, $3, $4)
         RETURNING id, created_at, updated_at
@@ -45,13 +83,12 @@ func (r *ProductRepository) CreateProduct(ctx context.Context, product *domain.P
 	return nil
 }
 
-// ListProducts busca todos os produtos no banco de dados.
+// ListProducts busca produtos com paginação e busca por nome (case-insensitive).
 func (r *ProductRepository) ListProducts(ctx context.Context, search string, page, limit int) ([]domain.Produto, int, error) {
-	// --- Primeira query: Contar o total de registros ---
 	countQuery := "SELECT COUNT(*) FROM products"
 	var countArgs []any
 	if search != "" {
-		countQuery += " WHERE name ILIKE $1" // ILIKE para busca case-insensitive
+		countQuery += " WHERE name ILIKE $1"
 		countArgs = append(countArgs, "%"+search+"%")
 	}
 
@@ -61,14 +98,16 @@ func (r *ProductRepository) ListProducts(ctx context.Context, search string, pag
 	}
 
 	if totalRecords == 0 {
-		return make([]domain.Produto, 0), 0, nil
+		return []domain.Produto{}, 0, nil
 	}
 
-	// --- Segunda query: Buscar os dados da página atual ---
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT id, name, description, price_in_cents, quantity, created_at, updated_at FROM products")
+	queryBuilder.WriteString(`
+		SELECT id, name, description, price_in_cents, quantity, created_at, updated_at
+		FROM products
+	`)
 
-	var args []any
+	args := []any{}
 	argID := 1
 	if search != "" {
 		queryBuilder.WriteString(fmt.Sprintf(" WHERE name ILIKE $%d", argID))
@@ -86,7 +125,7 @@ func (r *ProductRepository) ListProducts(ctx context.Context, search string, pag
 	}
 	defer rows.Close()
 
-	products := make([]domain.Produto, 0)
+	products := make([]domain.Produto, 0, limit)
 	for rows.Next() {
 		var p domain.Produto
 		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.PriceInCents, &p.Quantity, &p.CreatedAt, &p.UpdatedAt); err != nil {
@@ -102,9 +141,9 @@ func (r *ProductRepository) ListProducts(ctx context.Context, search string, pag
 	return products, totalRecords, nil
 }
 
-// GetProductByID busca um único produto pelo seu ID.
+// GetProductByID busca um produto pelo ID.
 func (r *ProductRepository) GetProductByID(ctx context.Context, productID uuid.UUID) (domain.Produto, error) {
-	query := `
+	const query = `
         SELECT id, name, description, price_in_cents, quantity, created_at, updated_at
         FROM products
         WHERE id = $1
@@ -120,9 +159,9 @@ func (r *ProductRepository) GetProductByID(ctx context.Context, productID uuid.U
 	return p, nil
 }
 
-// UpdateProduct atualiza um produto existente no banco de dados.
+// UpdateProduct atualiza os dados de um produto.
 func (r *ProductRepository) UpdateProduct(ctx context.Context, product *domain.Produto) error {
-	query := `
+	const query = `
         UPDATE products
         SET name = $1, description = $2, price_in_cents = $3, quantity = $4, updated_at = NOW()
         WHERE id = $5
@@ -135,7 +174,6 @@ func (r *ProductRepository) UpdateProduct(ctx context.Context, product *domain.P
 		product.Quantity,
 		product.ID,
 	).Scan(&product.UpdatedAt)
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrProductNotFound
@@ -145,9 +183,9 @@ func (r *ProductRepository) UpdateProduct(ctx context.Context, product *domain.P
 	return nil
 }
 
-// DeleteProduct remove um produto do banco de dados pelo seu ID.
+// DeleteProduct remove um produto pelo ID.
 func (r *ProductRepository) DeleteProduct(ctx context.Context, productID uuid.UUID) error {
-	query := "DELETE FROM products WHERE id = $1"
+	const query = "DELETE FROM products WHERE id = $1"
 	commandTag, err := r.db.Exec(ctx, query, productID)
 	if err != nil {
 		return fmt.Errorf("erro ao deletar produto: %w", err)
